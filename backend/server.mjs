@@ -5,7 +5,6 @@ import { createWriteStream, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { randomUUID, timingSafeEqual } from "node:crypto";
-import { pipeline } from "node:stream/promises";
 
 const PORT = Number(process.env.PORT || 8787);
 const HOST = process.env.HOST || "0.0.0.0";
@@ -90,39 +89,37 @@ function startMcp() {
 
 async function saveUpload(req, res, url) {
   if (req.method !== "POST") return send(res, 405, { error: "method_not_allowed" });
-  const name = path.basename(url.searchParams.get("filename") || "artifact.bin")
-    .replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 120) || "artifact.bin";
+  const declaredLength = Number(req.headers["content-length"] || 0);
+  if (declaredLength > MAX_UPLOAD) { req.resume(); return send(res, 413, { error: "upload_too_large", maxBytes: MAX_UPLOAD }); }
+  const name = path.basename(url.searchParams.get("filename") || "artifact.bin").replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 120) || "artifact.bin";
   const id = randomUUID();
-  const destination = path.join(UPLOAD_DIR, `${id}-${name}`);
-  let size = 0;
+  const destination = path.join(UPLOAD_DIR, id + "-" + name);
   const output = createWriteStream(destination, { flags: "wx", mode: 0o600 });
+  let size = 0; let exceeded = false;
   try {
     for await (const chunk of req) {
       size += chunk.length;
-      if (size > MAX_UPLOAD) {
-        req.destroy();
-        output.destroy();
-        return send(res, 413, { error: "upload_too_large", maxBytes: MAX_UPLOAD });
-      }
-      if (!output.write(chunk)) await new Promise(resolve => output.once("drain", resolve));
+      if (size > MAX_UPLOAD) { exceeded = true; output.destroy(); continue; }
+      if (!exceeded && !output.write(chunk)) await new Promise((resolve, reject) => { output.once("drain", resolve); output.once("error", reject); });
     }
-    output.end();
-    await new Promise((resolve, reject) => {
-      output.once("finish", resolve);
-      output.once("error", reject);
-    });
-    if (size === 0) {
-      return send(res, 400, { error: "empty_upload" });
+    if (exceeded || size === 0) {
+      output.destroy();
+      const { unlink } = await import("node:fs/promises");
+      await unlink(destination).catch(() => {});
+      return send(res, exceeded ? 413 : 400, exceeded ? { error: "upload_too_large", maxBytes: MAX_UPLOAD } : { error: "empty_upload" });
     }
+    await new Promise((resolve, reject) => { output.once("error", reject); output.end(resolve); });
     const record = { id, name, size, path: destination, createdAt: new Date().toISOString() };
     uploads.set(id, record);
-    send(res, 201, { upload: record, next: "Use this absolute path as the input to a supported REA MCP analysis tool." });
+    return send(res, 201, { upload: record, next: "Pass the returned absolute path to a compatible REA tool." });
   } catch (error) {
     output.destroy();
-    send(res, 400, { error: "upload_failed", message: error.message });
+    const { unlink } = await import("node:fs/promises");
+    await unlink(destination).catch(() => {});
+    if (!res.headersSent) return send(res, 400, { error: "upload_failed", message: error.message });
+    res.destroy();
   }
 }
-
 function proxyMcp(req, res) {
   if (!mcpReady) return send(res, 503, { error: "rea_mcp_not_ready" });
   const headers = { ...req.headers, host: `127.0.0.1:${MCP_PORT}` };
