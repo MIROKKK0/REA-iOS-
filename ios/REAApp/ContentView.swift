@@ -307,11 +307,13 @@ struct ContentView: View {
                 result = "Informe uma URL válida começando com https:// ou http://."
                 return
             }
-            guard let args = makeArguments(for: tool, input: url.absoluteString, mode: "SITE") else {
-                result = "A ferramenta '\(tool.name)' tem campos obrigatórios que não podem ser preenchidos automaticamente. Veja o schema em Avançado."
-                return
-            }
-            sendToolCall(tool: tool.name, args: args)
+            let args: [String: Any] = [
+                "browser": ["mode": "launch", "executable_path": "/usr/bin/chromium"],
+                "start_url": ["url": url.absoluteString],
+                "actions": [["step_id": "load-site", "action": "wait_for_timeout", "duration_ms": 1200]],
+                "detail": "complete"
+            ]
+            sendToolCall(tool: "capture_browser_scenario", args: args)
         } else {
             guard let file = selectedFile else { return }
             uploadAndAnalyze(file: file, tool: tool)
