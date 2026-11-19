@@ -69,44 +69,38 @@ struct ContentView: View {
                     SecureField("Token de acesso", text: $token)
                     Button("Conectar e descobrir ferramentas", action: discoverTools).disabled(busy || token.isEmpty)
                 }
-                Section("Análise rápida") {
-                    Picker("Quero analisar", selection: $analysisMode) {
-                        Text("IPA / aplicativo").tag("IPA")
-                        Text("Site / URL").tag("SITE")
-                    }.pickerStyle(.segmented)
-                    if analysisMode == "IPA" {
-                        Button("Escolher IPA", systemImage: "doc.badge.plus") { showImporter = true }
+                Section("O que você quer analisar?") {
+                    Picker("Tipo de engenharia reversa", selection: $analysisMode) {
+                        Text("Site").tag("SITE")
+                        Text("IPA").tag("IPA")
+                    }
+                    .pickerStyle(.segmented)
+                    if analysisMode == "SITE" {
+                        TextField("https://seusite.com", text: $targetURL)
+                            .textInputAutocapitalization(.never)
+                            .keyboardType(.URL)
+                            .autocorrectionDisabled()
+                    } else {
+                        Button {
+                            showImporter = true
+                            result = "Escolha o arquivo .ipa e confirme em Abrir no seletor Arquivos."
+                        } label: {
+                            Label(selectedFile?.lastPathComponent ?? "Selecionar arquivo IPA", systemImage: "folder")
+                        }
                         if let selectedFile {
-                            Label(selectedFile.lastPathComponent, systemImage: "doc")
+                            Label("Selecionado: " + selectedFile.lastPathComponent, systemImage: "checkmark.circle.fill")
                                 .font(.footnote)
+                                .foregroundStyle(.green)
                                 .lineLimit(2)
                         } else {
-                            Text("Escolha um arquivo .ipa no app Arquivos.")
+                            Text("Toque em Selecionar arquivo IPA; depois toque em Abrir.")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
-                    } else {
-                        TextField("https://exemplo.com", text: $targetURL)
-                            .textInputAutocapitalization(.never).keyboardType(.URL)
-                            .autocorrectionDisabled()
                     }
-                    Button("Analisar automaticamente", systemImage: "sparkles", action: startAnalysis)
+                    Button("Iniciar engenharia reversa", systemImage: "sparkles", action: startAnalysis)
                         .disabled(busy || tools.isEmpty || (analysisMode == "IPA" && selectedFile == nil) || (analysisMode == "SITE" && targetURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
                     if tools.isEmpty {
-                        Text("Conecte primeiro para carregar as ferramentas disponíveis.")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-                Section("Avançado") {
-                    if let tool = tools.first(where: { $0.name == selectedTool }) {
-                        Text("Ferramenta selecionada: \(tool.name)").font(.footnote)
-                        DisclosureGroup("Descrição e schema") {
-                            if let description = tool.description { Text(description).font(.caption) }
-                            Text(tool.schemaText).font(.system(.caption2, design: .monospaced)).textSelection(.enabled)
-                        }
-                        TextEditor(text: $arguments).frame(minHeight: 100).font(.system(.footnote, design: .monospaced))
-                        Button("Executar manualmente", action: callTool).disabled(busy)
-                    } else {
-                        Text("A seleção automática escolhe uma ferramenta compatível pelo nome, descrição e schema.")
+                        Text("Conecte ao servidor primeiro.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
@@ -116,10 +110,28 @@ struct ContentView: View {
                 }
             }
             .navigationTitle("REA • Engenharia reversa")
-            .fileImporter(isPresented: $showImporter, allowedContentTypes: [.item], allowsMultipleSelection: false) { outcome in
+            .fileImporter(
+                isPresented: $showImporter,
+                allowedContentTypes: [UTType(filenameExtension: "ipa", conformingTo: .zip) ?? .zip, .zip, .data, .item],
+                allowsMultipleSelection: false
+            ) { outcome in
                 switch outcome {
-                case .success(let urls): selectedFile = urls.first
-                case .failure(let error): result = error.localizedDescription
+                case .success(let urls):
+                    guard let url = urls.first else {
+                        selectedFile = nil
+                        result = "Nenhum arquivo foi selecionado."
+                        return
+                    }
+                    guard url.pathExtension.lowercased() == "ipa" else {
+                        selectedFile = nil
+                        result = "Esse arquivo não parece ser um IPA. Escolha um arquivo com extensão .ipa."
+                        return
+                    }
+                    selectedFile = url
+                    result = "IPA selecionado: \(url.lastPathComponent). Agora toque em Iniciar engenharia reversa."
+                case .failure(let error):
+                    selectedFile = nil
+                    result = "Não foi possível abrir o arquivo: \(error.localizedDescription)"
                 }
             }
         }
