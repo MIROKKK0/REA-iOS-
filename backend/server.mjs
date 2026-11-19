@@ -1,3 +1,4 @@
+import { createMcpClient } from "./mcp-client.mjs";
 import http from "node:http";
 import { spawn } from "node:child_process";
 import { createWriteStream, mkdirSync } from "node:fs";
@@ -17,6 +18,7 @@ const uploads = new Map();
 let mcpProcess;
 let mcpReady = false;
 let stopping = false;
+const mcp = createMcpClient(MCP_PORT);
 
 mkdirSync(UPLOAD_DIR, { recursive: true, mode: 0o700 });
 
@@ -155,6 +157,23 @@ const server = http.createServer(async (req, res) => {
   }
   if (!authorized(req)) return send(res, 401, { error: "unauthorized" });
   if (url.pathname === "/api/upload") return saveUpload(req, res, url);
+  if (url.pathname === "/api/tools" && req.method === "GET") {
+    try { return send(res, 200, await mcp.listTools()); }
+    catch (error) { return send(res, 502, { error: "mcp_tools_unavailable", message: error.message }); }
+  }
+  if (url.pathname === "/api/tools/call" && req.method === "POST") {
+    try {
+      let raw = "";
+      for await (const chunk of req) {
+        raw += chunk.toString("utf8");
+        if (raw.length > 1024 * 1024) return send(res, 413, { error: "request_too_large" });
+      }
+      const input = JSON.parse(raw || "{}");
+      if (typeof input.name !== "string" || !input.name.trim()) return send(res, 400, { error: "tool_name_required" });
+      const result = await mcp.callTool(input.name, input.arguments || {});
+      return send(res, 200, result);
+    } catch (error) { return send(res, 502, { error: "mcp_tool_failed", message: error.message }); }
+  }
   if (url.pathname === "/mcp") return proxyMcp(req, res);
   return send(res, 404, { error: "not_found" });
 });
