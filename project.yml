@@ -1,0 +1,22 @@
+name: REA
+options:
+  bundleIdPrefix: com.mirokkk0
+  deploymentTarget:
+    iOS: "16.0"
+targets:
+  REA:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources/REA
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.mirokkk0.rea
+        PRODUCT_NAME: REA
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: REA
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.developer-tools
+        INFOPLIST_KEY_UIFileSharingEnabled: YES
+        INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace: YES
