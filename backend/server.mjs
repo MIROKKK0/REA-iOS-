@@ -43,9 +43,8 @@ function send(res, status, body) {
 
 function startMcp() {
   return new Promise((resolve, reject) => {
-    const child = spawn("npx", [
-      "--yes", "rea-agents@6.9.0", "mcp",
-      "--http", "--host", "127.0.0.1", "--port", String(MCP_PORT)
+    const child = spawn("rea", [
+      "mcp", "--http", "--host", "127.0.0.1", "--port", String(MCP_PORT)
     ], { stdio: ["ignore", "ignore", "pipe"], env: process.env });
     mcpProcess = child;
     let settled = false;
