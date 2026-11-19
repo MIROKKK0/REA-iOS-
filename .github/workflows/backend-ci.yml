@@ -15,17 +15,45 @@ permissions:
   contents: read
 
 jobs:
-  backend:
+  unit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "22.23.4"
-      - name: Syntax check
+      - name: Syntax and unit tests
         run: |
           node --check backend/server.mjs
           node --check backend/mcp-client.mjs
-      - name: MCP client tests
+          cd backend && npm test
+  rea-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.23.4"
+      - name: Install official REA CLI
+        run: npm install --global rea-agents@6.9.0
+      - name: Verify real REA MCP startup and tool catalog
         working-directory: backend
-        run: npm test
+        env:
+          REA_API_TOKEN: 0123456789abcdef0123456789abcdef
+          PORT: 8787
+          MCP_PORT: 8788
+        run: |
+          npm start > /tmp/rea-backend.log 2>&1 &
+          BACKEND_PID=$!
+          trap 'kill $BACKEND_PID 2>/dev/null || true' EXIT
+          for i in $(seq 1 90); do
+            curl -fsS http://127.0.0.1:8787/health > /tmp/rea-health.json || true
+            grep -q '"ready"' /tmp/rea-health.json 2>/dev/null && break
+            sleep 2
+          done
+          cat /tmp/rea-health.json
+          grep -q '"ready"' /tmp/rea-health.json
+          curl -fsS -H 'Authorization: Bearer 0123456789abcdef0123456789abcdef' http://127.0.0.1:8787/api/tools > /tmp/rea-tools.json
+          node -e 'const x=require("/tmp/rea-tools.json"); if (!Array.isArray(x.tools) || !x.tools.length) process.exit(1); console.log(x.tools.map(t=>t.name).join("\n"))'
+          cat /tmp/rea-backend.log
