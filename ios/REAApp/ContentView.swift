@@ -58,7 +58,7 @@ struct ContentView: View {
                     Button("Selecionar IPA ou arquivo", systemImage: "doc.badge.plus") { showImporter = true }
                     if let selectedFile { Text(selectedFile.lastPathComponent).font(.footnote) }
                     Button("Enviar arquivo ao servidor", action: uploadFile).disabled(selectedFile == nil || busy)
-                    if !uploadPath.isEmpty { Text("Arquivo temporário: (uploadPath)").font(.caption).textSelection(.enabled) }
+                    if !uploadPath.isEmpty { Text("Arquivo temporário: \\(uploadPath)").font(.caption).textSelection(.enabled) }
                 }
                 Section("Ferramentas MCP reais") {
                     if tools.isEmpty { Text("Nenhuma ferramenta descoberta ainda.").foregroundStyle(.secondary) }
