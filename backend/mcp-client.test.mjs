@@ -34,6 +34,8 @@ test("discovers and calls tools through a stateful MCP HTTP session", async () =
     assert.equal(result.content[0].text, "real tool result");
     assert.equal(seen[2].headers["mcp-session-id"], "test-session");
     assert.equal(seen[3].headers["mcp-session-id"], "test-session");
+    assert.equal(seen[2].headers["mcp-protocol-version"], "2025-03-26");
+    assert.equal(seen[3].headers["mcp-protocol-version"], "2025-03-26");
   } finally {
     globalThis.fetch = originalFetch;
   }
