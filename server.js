@@ -1,7 +1,7 @@
 import express from "express";
 import multer from "multer";
 import { randomUUID, timingSafeEqual } from "node:crypto";
-import { mkdir, writeFile, unlink } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -35,20 +35,41 @@ function requireAuth(req, res, next) {
   next();
 }
 
-async function withReaClient(fn) {
-  const client = new Client({ name: "rea-ios-bridge", version: "1.0.0" });
-  const transport = new StdioClientTransport({
-    command: REA_COMMAND,
-    args: process.env.REA_COMMAND ? ["-y", REA_PACKAGE, "mcp"] : ["mcp"],
-    stderr: "pipe"
-  });
-  try {
-    await client.connect(transport);
-    return await fn(client);
-  } finally {
-    await client.close().catch(() => {});
-    await transport.close().catch(() => {});
+let reaClientPromise = null;
+
+async function getReaClient() {
+  if (!reaClientPromise) {
+    reaClientPromise = (async () => {
+      const client = new Client({ name: "rea-ios-bridge", version: "1.0.0" });
+      const transport = new StdioClientTransport({
+        command: REA_COMMAND,
+        args: process.env.REA_COMMAND ? ["-y", REA_PACKAGE, "mcp"] : ["mcp"],
+        stderr: "pipe"
+      });
+      try {
+        await client.connect(transport);
+        transport.stderr?.on("data", chunk => {
+          const line = String(chunk).trim();
+          if (line) console.error("[rea-stderr]", line.slice(0, 4000));
+        });
+        console.log("REA MCP stdio connection established");
+        return { client, transport };
+      } catch (error) {
+        await client.close().catch(() => {});
+        await transport.close().catch(() => {});
+        throw error;
+      }
+    })().catch(error => {
+      reaClientPromise = null;
+      throw error;
+    });
   }
+  return reaClientPromise;
+}
+
+async function withReaClient(fn) {
+  const { client } = await getReaClient();
+  return fn(client);
 }
 
 let reaStartup = { ready: false, toolCount: 0, checkedAt: null, error: null };
@@ -117,4 +138,16 @@ const server = app.listen(PORT, "0.0.0.0", () => {
     console.error("REA MCP startup discovery failed:", error);
   });
 });
-process.on("SIGTERM", () => server.close(() => process.exit(0)));
+async function shutdown() {
+  server.close();
+  if (reaClientPromise) {
+    try {
+      const { client, transport } = await reaClientPromise;
+      await client.close().catch(() => {});
+      await transport.close().catch(() => {});
+    } catch {}
+  }
+  process.exit(0);
+}
+process.on("SIGTERM", shutdown);
+process.on("SIGINT", shutdown);
