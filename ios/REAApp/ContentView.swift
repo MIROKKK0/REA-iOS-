@@ -52,6 +52,8 @@ struct ContentView: View {
     @State private var token = ""
     @State private var tools: [ToolInfo] = []
     @State private var selectedTool = ""
+    @State private var analysisMode = "IPA"
+    @State private var targetURL = ""
     @State private var arguments = "{}"
     @State private var result = "Conecte ao REA para descobrir as ferramentas disponíveis."
     @State private var selectedFile: URL?
@@ -67,30 +69,45 @@ struct ContentView: View {
                     SecureField("Token de acesso", text: $token)
                     Button("Conectar e descobrir ferramentas", action: discoverTools).disabled(busy || token.isEmpty)
                 }
-                Section("Arquivo para análise") {
-                    Button("Selecionar IPA ou arquivo", systemImage: "doc.badge.plus") { showImporter = true }
-                    if let selectedFile { Text(selectedFile.lastPathComponent).font(.footnote) }
-                    Button("Enviar arquivo ao servidor", action: uploadFile).disabled(selectedFile == nil || busy)
-                    if !uploadPath.isEmpty { Text("Arquivo temporário: \\(uploadPath)").font(.caption).textSelection(.enabled) }
+                Section("Análise rápida") {
+                    Picker("Quero analisar", selection: $analysisMode) {
+                        Text("IPA / aplicativo").tag("IPA")
+                        Text("Site / URL").tag("SITE")
+                    }.pickerStyle(.segmented)
+                    if analysisMode == "IPA" {
+                        Button("Escolher IPA", systemImage: "doc.badge.plus") { showImporter = true }
+                        if let selectedFile {
+                            Label(selectedFile.lastPathComponent, systemImage: "doc")
+                                .font(.footnote)
+                                .lineLimit(2)
+                        } else {
+                            Text("Escolha um arquivo .ipa no app Arquivos.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    } else {
+                        TextField("https://exemplo.com", text: $targetURL)
+                            .textInputAutocapitalization(.never).keyboardType(.URL)
+                            .autocorrectionDisabled()
+                    }
+                    Button("Analisar automaticamente", systemImage: "sparkles", action: startAnalysis)
+                        .disabled(busy || tools.isEmpty || (analysisMode == "IPA" && selectedFile == nil) || (analysisMode == "SITE" && targetURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
+                    if tools.isEmpty {
+                        Text("Conecte primeiro para carregar as ferramentas disponíveis.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                 }
-                Section("Ferramentas MCP reais") {
-                    if tools.isEmpty { Text("Nenhuma ferramenta descoberta ainda.").foregroundStyle(.secondary) }
-                    else {
-                        Picker("Ferramenta", selection: $selectedTool) {
-                            ForEach(tools) { tool in Text(tool.name).tag(tool.name) }
+                Section("Avançado") {
+                    if let tool = tools.first(where: { $0.name == selectedTool }) {
+                        Text("Ferramenta selecionada: \\(tool.name)").font(.footnote)
+                        DisclosureGroup("Descrição e schema") {
+                            if let description = tool.description { Text(description).font(.caption) }
+                            Text(tool.schemaText).font(.system(.caption2, design: .monospaced)).textSelection(.enabled)
                         }
-                        if let tool = tools.first(where: { $0.name == selectedTool }) {
-                            if let description = tool.description {
-                                Text(description).font(.caption).foregroundStyle(.secondary)
-                            }
-                            DisclosureGroup("Schema de entrada da ferramenta") {
-                                Text(tool.schemaText).font(.system(.caption2, design: .monospaced)).textSelection(.enabled)
-                            }
-                            Button("Preencher campos obrigatórios", action: fillRequiredArguments)
-                        }
-                        Text("Argumentos JSON").font(.caption)
-                        TextEditor(text: $arguments).frame(minHeight: 120).font(.system(.footnote, design: .monospaced))
-                        Button("Executar ferramenta", action: callTool).disabled(busy || selectedTool.isEmpty)
+                        TextEditor(text: $arguments).frame(minHeight: 100).font(.system(.footnote, design: .monospaced))
+                        Button("Executar manualmente", action: callTool).disabled(busy)
+                    } else {
+                        Text("A seleção automática escolhe uma ferramenta compatível pelo nome, descrição e schema.")
+                            .font(.caption).foregroundStyle(.secondary)
                     }
                 }
                 Section("Resposta") {
@@ -189,6 +206,151 @@ struct ContentView: View {
         }
     }
 
+
+
+    private func schemaParts(_ tool: ToolInfo) -> ([String: JSONValue], [String])? {
+        guard case .object(let root)? = tool.inputSchema,
+              case .object(let properties)? = root["properties"] else { return nil }
+        let required: [String]
+        if case .array(let values)? = root["required"] {
+            required = values.compactMap { if case .string(let value) = $0 { return value }; return nil }
+        } else { required = [] }
+        return (properties, required)
+    }
+
+    private func bestTool(for mode: String) -> ToolInfo? {
+        let blocked = ["annotate", "rename", "delete", "write", "patch", "modify", "edit", "comment", "execute", "run_command"]
+        let positive = mode == "IPA"
+            ? ["ipa", "binary", "analy", "inspect", "reverse", "decompil", "disassembl", "import", "artifact", "file"]
+            : ["website", "web", "url", "http", "crawl", "fetch", "browse", "site", "domain", "page"]
+        return tools.compactMap { tool -> (ToolInfo, Int)? in
+            guard let parts = schemaParts(tool) else { return nil }
+            let text = (tool.name + " " + (tool.description ?? "") + " " + parts.0.keys.joined(separator: " ")).lowercased()
+            if blocked.contains(where: { text.contains($0) }) { return nil }
+            var score = positive.reduce(0) { $0 + (text.contains($1) ? 2 : 0) }
+            if mode == "IPA", parts.0.keys.contains(where: { ["file_path", "filepath", "binary_path", "ipa_path", "artifact_path"].contains($0.lowercased()) }) { score += 8 }
+            if mode == "SITE", parts.0.keys.contains(where: { ["url", "uri", "website_url", "site_url"].contains($0.lowercased()) }) { score += 8 }
+            if parts.1.isEmpty { score -= 1 }
+            return score > 0 ? (tool, score) : nil
+        }.sorted { $0.1 > $1.1 }.first?.0
+    }
+
+    private func makeArguments(for tool: ToolInfo, input: String, mode: String) -> [String: Any]? {
+        guard let (properties, required) = schemaParts(tool) else { return nil }
+        var result: [String: Any] = [:]
+        let normalizedInput = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        for (key, value) in properties {
+            guard case .object(let property) = value,
+                  case .string(let type)? = property["type"], type == "string" else { continue }
+            let k = key.lowercased()
+            if mode == "IPA" && ["file", "filepath", "file_path", "path", "binary", "binary_path", "ipa", "ipa_path", "artifact", "artifact_path", "input_file", "target_path"].contains(k) {
+                result[key] = normalizedInput
+            } else if mode == "SITE" && ["url", "uri", "website", "website_url", "site", "site_url", "target_url", "domain", "page_url"].contains(k) {
+                result[key] = normalizedInput
+            }
+        }
+        for key in required where result[key] == nil {
+            guard case .object(let property)? = properties[key],
+                  case .string(let type)? = property["type"], type == "string" else { return nil }
+            return nil
+        }
+        return result
+    }
+
+    private func startAnalysis() {
+        guard let tool = bestTool(for: analysisMode) else {
+            result = analysisMode == "IPA"
+                ? "Não encontrei no catálogo MCP uma ferramenta de análise de IPA/binário com schema compatível. Não vou chamar uma ferramenta errada."
+                : "Não encontrei no catálogo MCP uma ferramenta de análise de sites/URLs com schema compatível."
+            return
+        }
+        selectedTool = tool.name
+        if analysisMode == "SITE" {
+            guard let url = URL(string: targetURL), ["http", "https"].contains(url.scheme?.lowercased() ?? ""), url.host != nil else {
+                result = "Informe uma URL válida começando com https:// ou http://."
+                return
+            }
+            guard let args = makeArguments(for: tool, input: url.absoluteString, mode: "SITE") else {
+                result = "A ferramenta '\\(tool.name)' tem campos obrigatórios que não podem ser preenchidos automaticamente. Veja o schema em Avançado."
+                return
+            }
+            sendToolCall(tool: tool.name, args: args)
+        } else {
+            guard let file = selectedFile else { return }
+            uploadAndAnalyze(file: file, tool: tool)
+        }
+    }
+
+    private func uploadAndAnalyze(file: URL, tool: ToolInfo) {
+        guard let base = URL(string: server) else { result = "URL do servidor inválida."; return }
+        busy = true
+        result = "Enviando IPA ao REA…"
+        DispatchQueue.global().async {
+            let access = file.startAccessingSecurityScopedResource()
+            defer { if access { file.stopAccessingSecurityScopedResource() } }
+            do {
+                let bytes = try Data(contentsOf: file)
+                let boundary = UUID().uuidString
+                var body = Data()
+                body.append("--\\(boundary)\\r\\n".data(using: .utf8)!)
+                body.append("Content-Disposition: form-data; name=\\"file\\"; filename=\\"\\(file.lastPathComponent)\\"\\r\\n".data(using: .utf8)!)
+                body.append("Content-Type: application/octet-stream\\r\\n\\r\\n".data(using: .utf8)!)
+                body.append(bytes)
+                body.append("\\r\\n--\\(boundary)--\\r\\n".data(using: .utf8)!)
+                var req = URLRequest(url: base.appendingPathComponent("api/upload"))
+                req.httpMethod = "POST"
+                req.setValue("Bearer \\(self.token)", forHTTPHeaderField: "Authorization")
+                req.setValue("multipart/form-data; boundary=\\(boundary)", forHTTPHeaderField: "Content-Type")
+                req.httpBody = body
+                req.timeoutInterval = 300
+                URLSession.shared.dataTask(with: req) { data, response, error in
+                    DispatchQueue.main.async {
+                        if let error { busy = false; result = "Falha no upload: \\(error.localizedDescription)"; return }
+                        guard let data, let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+                              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                              let path = object["filePath"] as? String else {
+                            busy = false
+                            result = "O servidor não aceitou o arquivo: \\(String(data: data ?? Data(), encoding: .utf8) ?? "sem resposta")"
+                            return
+                        }
+                        uploadPath = path
+                        guard let args = makeArguments(for: tool, input: path, mode: "IPA") else {
+                            busy = false
+                            result = "O arquivo foi enviado, mas o schema de '\\(tool.name)' não tem campos obrigatórios compatíveis com caminho de IPA."
+                            return
+                        }
+                        sendToolCall(tool: tool.name, args: args)
+                    }
+                }.resume()
+            } catch {
+                DispatchQueue.main.async { busy = false; result = "Não foi possível ler o IPA: \\(error.localizedDescription)" }
+            }
+        }
+    }
+
+    private func sendToolCall(tool: String, args: [String: Any]) {
+        guard let body = try? JSONSerialization.data(withJSONObject: ["arguments": args]),
+              let req = request("/api/tools/\\(tool)/call", method: "POST", body: body) else {
+            busy = false
+            result = "Não foi possível preparar a chamada da ferramenta."
+            return
+        }
+        busy = true
+        result = "Executando análise com \\(tool)…"
+        URLSession.shared.dataTask(with: req) { data, response, error in
+            DispatchQueue.main.async {
+                busy = false
+                if let error { result = error.localizedDescription; return }
+                guard let data else { result = "O servidor não retornou conteúdo."; return }
+                let payload = String(data: data, encoding: .utf8) ?? "Resposta não textual."
+                if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+                    result = "HTTP \\(http.statusCode): \\(payload)"
+                } else {
+                    result = payload
+                }
+            }
+        }.resume()
+    }
 
     private func filePathArgumentName() -> String? {
         guard let schema = tools.first(where: { $0.name == selectedTool })?.inputSchema,
