@@ -1,5 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import UIKit
 
 struct ToolInfo: Decodable, Identifiable {
     let name: String
@@ -43,6 +44,46 @@ indirect enum JSONValue: Codable {
         case .number(let v): try c.encode(v)
         case .bool(let v): try c.encode(v)
         case .null: try c.encodeNil()
+        }
+    }
+}
+
+
+private struct IPAFilePicker: UIViewControllerRepresentable {
+    @Binding var selectedFile: URL?
+    @Binding var result: String
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.data], asCopy: true)
+        picker.allowsMultipleSelection = false
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ controller: UIDocumentPickerViewController, context: Context) {}
+
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        private let parent: IPAFilePicker
+        init(_ parent: IPAFilePicker) { self.parent = parent }
+
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            guard let url = urls.first else {
+                parent.result = "Nenhum arquivo foi selecionado."
+                return
+            }
+            guard url.pathExtension.lowercased() == "ipa" else {
+                parent.selectedFile = nil
+                parent.result = "Arquivo inválido. Escolha um arquivo com extensão .ipa."
+                return
+            }
+            parent.selectedFile = url
+            parent.result = "IPA copiado para o REA: \(url.lastPathComponent). Agora toque em Iniciar engenharia reversa."
+        }
+
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+            parent.result = "Seleção cancelada. Nenhum arquivo foi enviado."
         }
     }
 }
@@ -110,29 +151,9 @@ struct ContentView: View {
                 }
             }
             .navigationTitle("REA • Engenharia reversa")
-            .fileImporter(
-                isPresented: $showImporter,
-                allowedContentTypes: [UTType(filenameExtension: "ipa", conformingTo: .zip) ?? .zip, .zip, .data, .item],
-                allowsMultipleSelection: false
-            ) { outcome in
-                switch outcome {
-                case .success(let urls):
-                    guard let url = urls.first else {
-                        selectedFile = nil
-                        result = "Nenhum arquivo foi selecionado."
-                        return
-                    }
-                    guard url.pathExtension.lowercased() == "ipa" else {
-                        selectedFile = nil
-                        result = "Esse arquivo não parece ser um IPA. Escolha um arquivo com extensão .ipa."
-                        return
-                    }
-                    selectedFile = url
-                    result = "IPA selecionado: \(url.lastPathComponent). Agora toque em Iniciar engenharia reversa."
-                case .failure(let error):
-                    selectedFile = nil
-                    result = "Não foi possível abrir o arquivo: \(error.localizedDescription)"
-                }
+            .sheet(isPresented: $showImporter) {
+                IPAFilePicker(selectedFile: $selectedFile, result: $result)
+                    .ignoresSafeArea()
             }
         }
     }
