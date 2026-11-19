@@ -10,7 +10,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
 const TOKEN = process.env.REA_BRIDGE_TOKEN;
-const REA_COMMAND = process.env.REA_COMMAND || "npx";
+const REA_COMMAND = process.env.REA_COMMAND || "./node_modules/.bin/rea";
 const REA_PACKAGE = process.env.REA_PACKAGE || "rea-agents@6.9.0";
 const MAX_UPLOAD = Number(process.env.MAX_UPLOAD_BYTES || 200 * 1024 * 1024);
 const uploadDir = path.join(os.tmpdir(), "rea-uploads");
@@ -39,7 +39,7 @@ async function withReaClient(fn) {
   const client = new Client({ name: "rea-ios-bridge", version: "1.0.0" });
   const transport = new StdioClientTransport({
     command: REA_COMMAND,
-    args: ["-y", REA_PACKAGE, "mcp"],
+    args: process.env.REA_COMMAND ? ["-y", REA_PACKAGE, "mcp"] : ["mcp"],
     stderr: "pipe"
   });
   try {
