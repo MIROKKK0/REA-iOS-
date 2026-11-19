@@ -15,7 +15,7 @@ try {
   const candidates = new Set([
     "binary_overview", "open_binary", "inspect_artifact", "extract_artifact",
     "inspect_web_page", "analyze_web_bundle", "inspect_api_contract",
-    "project_apple_application_graph"
+    "project_apple_application_graph", "list_browser_targets", "open_bundle_resources", "capture_browser_scenario", "search_procedures", "list_procedures"
   ]);
   console.log(JSON.stringify({
     ok: true,
