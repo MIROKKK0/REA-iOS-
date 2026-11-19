@@ -173,7 +173,12 @@ struct ContentView: View {
                             uploadPath = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["filePath"] as? String ?? ""
                             result = text
                             if !uploadPath.isEmpty {
-                                arguments = "{\"filePath\": \"\(uploadPath)\"}"
+                                if let key = filePathArgumentName() {
+                                    arguments = (try? String(data: JSONSerialization.data(withJSONObject: [key: uploadPath], options: [.prettyPrinted, .sortedKeys]), encoding: .utf8)) ?? "{}"
+                                    result += "\\nArquivo enviado. Caminho inserido em '\\(key)'; complete os demais campos obrigatórios antes de executar."
+                                } else {
+                                    result += "\\nUpload concluído, mas o schema da ferramenta selecionada não declara um campo de caminho de arquivo. Selecione uma ferramenta compatível com análise de arquivos."
+                                }
                             }
                         } else { result = text }
                     }
