@@ -1,0 +1,38 @@
+name: REA authenticated readiness check
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/rea-ready-check.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  authenticated-ready:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Verify required secret is configured
+        env:
+          REA_BRIDGE_TOKEN: ${{ secrets.REA_BRIDGE_TOKEN }}
+        run: |
+          if [ -z "$REA_BRIDGE_TOKEN" ]; then
+            echo "REA_BRIDGE_TOKEN is missing."
+            exit 1
+          fi
+          echo "REA_BRIDGE_TOKEN is present."
+      - name: Request authenticated readiness endpoint
+        env:
+          REA_BRIDGE_TOKEN: ${{ secrets.REA_BRIDGE_TOKEN }}
+        run: |
+          set -euo pipefail
+          status="$(curl --connect-timeout 10 --max-time 60 --silent --show-error \
+            --output /dev/null --write-out '%{http_code}' \
+            --header "Authorization: Bearer ${REA_BRIDGE_TOKEN}" \
+            "https://rea-bridge-vt6z.onrender.com/api/ready")"
+          echo "Authenticated /api/ready HTTP status: ${status}"
+          if [ "${status}" != "200" ]; then
+            echo "Readiness check failed; expected HTTP 200."
+            exit 1
+          fi
+          echo "Authenticated readiness check passed."
