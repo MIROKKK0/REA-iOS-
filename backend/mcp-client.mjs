@@ -2,10 +2,12 @@ export function createMcpClient(port) {
   let sessionId = null;
   let requestId = 0;
   let initialized = false;
+  let protocolVersion = null;
   let queue = Promise.resolve();
   async function exchange(method, params = {}, notification = false) {
     const headers = { "content-type": "application/json", accept: "application/json, text/event-stream" };
     if (sessionId) headers["mcp-session-id"] = sessionId;
+    if (protocolVersion) headers["mcp-protocol-version"] = protocolVersion;
     const payload = notification ? { jsonrpc: "2.0", method, params } : { jsonrpc: "2.0", id: ++requestId, method, params };
     const response = await fetch("http://127.0.0.1:" + port + "/mcp", { method: "POST", headers, body: JSON.stringify(payload), signal: AbortSignal.timeout(300000) });
     const received = response.headers.get("mcp-session-id");
@@ -26,6 +28,7 @@ export function createMcpClient(port) {
     if (initialized) return;
     const result = await exchange("initialize", { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "rea-mobile-gateway", version: "0.2.0" } });
     if (!result || !result.protocolVersion) throw new Error("Invalid MCP initialize response");
+    protocolVersion = result.protocolVersion;
     await exchange("notifications/initialized", {}, true);
     initialized = true;
   }
@@ -37,6 +40,6 @@ export function createMcpClient(port) {
   return {
     listTools() { return serial(async () => { await initialize(); return exchange("tools/list", {}); }); },
     callTool(name, args) { return serial(async () => { await initialize(); return exchange("tools/call", { name, arguments: args || {} }); }); },
-    reset() { sessionId = null; requestId = 0; initialized = false; }
+    reset() { sessionId = null; requestId = 0; initialized = false; protocolVersion = null; }
   };
 }
