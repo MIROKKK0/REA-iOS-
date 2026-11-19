@@ -231,9 +231,11 @@ struct ContentView: View {
             if ["deletes data", "permanently removes", "overwrites the", "modifies the binary"].contains(where: { (tool.description ?? "").lowercased().contains($0) }) { return nil }
             var score = positive.reduce(0) { $0 + (text.contains($1) ? 2 : 0) }
             if mode == "IPA", parts.0.keys.contains(where: { ["file_path", "filepath", "binary_path", "ipa_path", "artifact_path"].contains($0.lowercased()) }) { score += 8 }
-            if mode == "SITE", parts.0.keys.contains(where: { ["url", "uri", "website_url", "site_url"].contains($0.lowercased()) }) { score += 8 }
+            if mode == "SITE", parts.0.keys.contains(where: { ["url", "uri", "website_url", "site_url", "target_url", "page_url"].contains($0.lowercased()) }) { score += 8 }
             if parts.1.isEmpty { score -= 1 }
-            return score > 0 ? (tool, score) : nil
+            let probe = mode == "IPA" ? "/tmp/rea-analysis-input.ipa" : "https://example.com"
+            guard score > 0, let mapped = makeArguments(for: tool, input: probe, mode: mode), !mapped.isEmpty else { return nil }
+            return (tool, score)
         }.sorted { $0.1 > $1.1 }.first?.0
     }
 
