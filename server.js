@@ -51,7 +51,11 @@ async function withReaClient(fn) {
   }
 }
 
-app.get("/health", (_req, res) => res.json({ ok: true, service: "rea-bridge" }));
+let reaStartup = { ready: false, toolCount: 0, checkedAt: null, error: null };
+app.get("/health", (_req, res) => res.json({ ok: true, service: "rea-bridge", reaReady: reaStartup.ready, toolCount: reaStartup.toolCount }));
+app.get("/api/ready", requireAuth, (_req, res) => {
+  res.status(reaStartup.ready ? 200 : 503).json(reaStartup);
+});
 
 app.get("/api/tools", requireAuth, async (_req, res) => {
   try {
@@ -102,5 +106,15 @@ app.use((error, _req, res, _next) => {
   res.status(400).json({ error: "bad_request" });
 });
 
-const server = app.listen(PORT, "0.0.0.0", () => console.log(`REA bridge listening on ${PORT}`));
+const server = app.listen(PORT, "0.0.0.0", () => {
+  console.log(`REA bridge listening on ${PORT}`);
+  withReaClient(async client => {
+    const result = await client.listTools();
+    reaStartup = { ready: Array.isArray(result.tools) && result.tools.length > 0, toolCount: result.tools?.length ?? 0, checkedAt: new Date().toISOString(), error: null };
+    console.log(`REA MCP startup discovery: ${reaStartup.toolCount} tools`);
+  }).catch(error => {
+    reaStartup = { ready: false, toolCount: 0, checkedAt: new Date().toISOString(), error: String(error.message || error) };
+    console.error("REA MCP startup discovery failed:", error);
+  });
+});
 process.on("SIGTERM", () => server.close(() => process.exit(0)));
