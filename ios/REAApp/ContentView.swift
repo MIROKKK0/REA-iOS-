@@ -225,8 +225,10 @@ struct ContentView: View {
             : ["website", "web", "url", "http", "crawl", "fetch", "browse", "site", "domain", "page"]
         return tools.compactMap { tool -> (ToolInfo, Int)? in
             guard let parts = schemaParts(tool) else { return nil }
+            let nameText = tool.name.lowercased()
             let text = (tool.name + " " + (tool.description ?? "") + " " + parts.0.keys.joined(separator: " ")).lowercased()
-            if blocked.contains(where: { text.contains($0) }) { return nil }
+            if blocked.contains(where: { nameText.contains($0) }) { return nil }
+            if ["deletes data", "permanently removes", "overwrites the", "modifies the binary"].contains(where: { (tool.description ?? "").lowercased().contains($0) }) { return nil }
             var score = positive.reduce(0) { $0 + (text.contains($1) ? 2 : 0) }
             if mode == "IPA", parts.0.keys.contains(where: { ["file_path", "filepath", "binary_path", "ipa_path", "artifact_path"].contains($0.lowercased()) }) { score += 8 }
             if mode == "SITE", parts.0.keys.contains(where: { ["url", "uri", "website_url", "site_url"].contains($0.lowercased()) }) { score += 8 }
