@@ -295,13 +295,6 @@ struct ContentView: View {
     }
 
     private func startAnalysis() {
-        guard let tool = bestTool(for: analysisMode) else {
-            result = analysisMode == "IPA"
-                ? "Não encontrei no catálogo MCP uma ferramenta de análise de IPA/binário com schema compatível. Não vou chamar uma ferramenta errada."
-                : "Não encontrei no catálogo MCP uma ferramenta de análise de sites/URLs com schema compatível."
-            return
-        }
-        selectedTool = tool.name
         if analysisMode == "SITE" {
             guard let url = URL(string: targetURL), ["http", "https"].contains(url.scheme?.lowercased() ?? ""), url.host != nil else {
                 result = "Informe uma URL válida começando com https:// ou http://."
@@ -314,10 +307,19 @@ struct ContentView: View {
                 "detail": "complete"
             ]
             sendToolCall(tool: "capture_browser_scenario", args: args)
-        } else {
-            guard let file = selectedFile else { return }
-            uploadAndAnalyze(file: file, tool: tool)
+            return
         }
+
+        guard let tool = bestTool(for: "IPA") else {
+            result = "Não encontrei uma ferramenta de análise de binário compatível no catálogo REA."
+            return
+        }
+        selectedTool = tool.name
+        guard let file = selectedFile else {
+            result = "Selecione primeiro um arquivo .ipa."
+            return
+        }
+        uploadAndAnalyze(file: file, tool: tool)
     }
 
     private func uploadAndAnalyze(file: URL, tool: ToolInfo) {
