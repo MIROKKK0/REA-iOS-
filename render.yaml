@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: rea-mobile-bridge
+    runtime: docker
+    plan: free
+    region: virginia
+    branch: feature/secure-rea-backend
+    dockerContext: ./backend
+    dockerfilePath: ./backend/Dockerfile
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: REA_API_TOKEN
+        sync: false
+      - key: MCP_PORT
+        value: "8788"
+      - key: MAX_UPLOAD_BYTES
+        value: "314572800"
