@@ -9,21 +9,28 @@ This service launches the official `rea-agents@6.9.0` MCP server on loopback and
 - `MCP_PORT`: private REA MCP port (default 8788).
 - `MAX_UPLOAD_BYTES`: upload cap (default 300 MiB).
 
-Deploy behind a platform-provided HTTPS reverse proxy. Never expose MCP_PORT or the REA MCP listener publicly. Do not use plain HTTP over an untrusted network.
-
 ## Routes
 
 - `GET /health`: readiness status; no secret or filesystem paths are disclosed.
-- `POST /api/upload?filename=...`: authenticated raw binary upload; returns an opaque upload id and local path for a subsequent REA MCP tool call.
-- `POST /mcp` and related Streamable HTTP methods: authenticated pass-through to the official REA MCP server.
+- `POST /api/upload?filename=...`: authenticated raw binary upload; returns the stored absolute path.
+- `GET /api/tools`: authenticated live MCP `tools/list` catalog, including input schemas.
+- `POST /api/tools/call`: authenticated generic MCP `tools/call`; JSON body: `{"name":"tool_name","arguments":{}}`.
+- `POST /mcp`: authenticated pass-through to the official Streamable HTTP MCP endpoint.
 
-The upload endpoint stores files with restrictive permissions in the backend's temporary filesystem. This first version does not yet invoke an analysis tool automatically: callers must use the REA MCP catalog and its documented input schema. Uploads are not durable across ephemeral host restarts.
+The iOS app uses the catalog's real tool names and schemas. It does not assume a tool name or fabricate analysis output. Select a tool, supply arguments matching its schema, and inspect the server's actual response.
 
 ## Run locally
 
+Requires Node.js 22.23.4 or newer and the official CLI:
+
 ```sh
+npm install --global rea-agents@6.9.0
 export REA_API_TOKEN="$(openssl rand -hex 32)"
 npm start
 ```
 
-Node.js 22.23.4 or newer in the Node 22 line is required by REA 6.9.0. The upstream MCP HTTP transport itself has no TLS or client authentication; this gateway supplies bearer authentication and must remain behind HTTPS.
+## Deployment and security
+
+Deploy the Dockerfile behind a platform-provided HTTPS reverse proxy. Configure `REA_API_TOKEN` as a secret with at least 32 random characters. Never expose `MCP_PORT` or the REA MCP listener publicly. The upstream MCP HTTP transport itself has no TLS or client authentication; this gateway supplies bearer authentication and must remain behind HTTPS.
+
+Uploads are stored with restrictive permissions in the backend's temporary filesystem. They are not durable across ephemeral host restarts. The live CI smoke test verifies startup and tool discovery; a full analysis still requires a supported sample and any provider/tooling needed by the selected REA tool.
