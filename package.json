@@ -16,5 +16,8 @@
     "express": "^5.1.0",
     "multer": "^2.0.2",
     "rea-agents": "6.9.0"
+  },
+  "allowScripts": {
+    "frida@17.23.2": true
   }
 }
