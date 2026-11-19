@@ -6,6 +6,19 @@ struct ToolInfo: Decodable, Identifiable {
     let description: String?
     let inputSchema: JSONValue?
     var id: String { name }
+    var schemaText: String {
+        guard let inputSchema, let data = try? JSONEncoder.pretty.encode(inputSchema),
+              let value = String(data: data, encoding: .utf8) else { return "Schema de entrada não informado." }
+        return value
+    }
+}
+
+private extension JSONEncoder {
+    static var pretty: JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return encoder
+    }
 }
 
 struct ToolsResponse: Decodable { let tools: [ToolInfo] }
@@ -66,8 +79,14 @@ struct ContentView: View {
                         Picker("Ferramenta", selection: $selectedTool) {
                             ForEach(tools) { tool in Text(tool.name).tag(tool.name) }
                         }
-                        if let tool = tools.first(where: { $0.name == selectedTool }), let description = tool.description {
-                            Text(description).font(.caption).foregroundStyle(.secondary)
+                        if let tool = tools.first(where: { $0.name == selectedTool }) {
+                            if let description = tool.description {
+                                Text(description).font(.caption).foregroundStyle(.secondary)
+                            }
+                            DisclosureGroup("Schema de entrada da ferramenta") {
+                                Text(tool.schemaText).font(.system(.caption2, design: .monospaced)).textSelection(.enabled)
+                            }
+                            Button("Preencher campos obrigatórios", action: fillRequiredArguments)
                         }
                         Text("Argumentos JSON").font(.caption)
                         TextEditor(text: $arguments).frame(minHeight: 120).font(.system(.footnote, design: .monospaced))
@@ -163,6 +182,52 @@ struct ContentView: View {
                 DispatchQueue.main.async { busy = false; result = error.localizedDescription }
             }
         }
+    }
+
+
+    private func filePathArgumentName() -> String? {
+        guard let schema = tools.first(where: { $0.name == selectedTool })?.inputSchema,
+              case .object(let root) = schema,
+              case .object(let properties)? = root["properties"] else { return nil }
+        for key in ["filePath", "file_path", "path", "binary_path", "target_path"] where properties[key] != nil {
+            return key
+        }
+        return nil
+    }
+
+    private func fillRequiredArguments() {
+        guard let schema = tools.first(where: { $0.name == selectedTool })?.inputSchema,
+              case .object(let root) = schema,
+              case .object(let properties)? = root["properties"] else {
+            result = "A ferramenta não anunciou um schema de entrada legível."
+            return
+        }
+        let required: [String]
+        if case .array(let values)? = root["required"] {
+            required = values.compactMap { if case .string(let value) = $0 { return value }; return nil }
+        } else { required = [] }
+        var values: [String: Any] = [:]
+        for key in required {
+            guard case .object(let property)? = properties[key],
+                  case .string(let type)? = property["type"] else { continue }
+            switch type {
+            case "string": values[key] = ""
+            case "number", "integer": values[key] = 0
+            case "boolean": values[key] = false
+            case "array": values[key] = [Any]()
+            case "object": values[key] = [String: Any]()
+            default: break
+            }
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: values, options: [.prettyPrinted, .sortedKeys]),
+              let text = String(data: data, encoding: .utf8) else {
+            result = "Não foi possível montar os campos obrigatórios."
+            return
+        }
+        arguments = text
+        result = required.isEmpty
+            ? "O schema não declara campos obrigatórios."
+            : "Campos obrigatórios preenchidos como modelo. Complete os valores vazios antes de executar."
     }
 
     private func callTool() {
