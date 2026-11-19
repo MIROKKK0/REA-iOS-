@@ -98,7 +98,7 @@ struct ContentView: View {
                 }
                 Section("Avançado") {
                     if let tool = tools.first(where: { $0.name == selectedTool }) {
-                        Text("Ferramenta selecionada: \\(tool.name)").font(.footnote)
+                        Text("Ferramenta selecionada: \(tool.name)").font(.footnote)
                         DisclosureGroup("Descrição e schema") {
                             if let description = tool.description { Text(description).font(.caption) }
                             Text(tool.schemaText).font(.system(.caption2, design: .monospaced)).textSelection(.enabled)
@@ -192,9 +192,9 @@ struct ContentView: View {
                             if !uploadPath.isEmpty {
                                 if let key = filePathArgumentName() {
                                     arguments = (try? String(data: JSONSerialization.data(withJSONObject: [key: uploadPath], options: [.prettyPrinted, .sortedKeys]), encoding: .utf8)) ?? "{}"
-                                    result += "\\nArquivo enviado. Caminho inserido em '\\(key)'; complete os demais campos obrigatórios antes de executar."
+                                    result += "\nArquivo enviado. Caminho inserido em '\(key)'; complete os demais campos obrigatórios antes de executar."
                                 } else {
-                                    result += "\\nUpload concluído, mas o schema da ferramenta selecionada não declara um campo de caminho de arquivo. Selecione uma ferramenta compatível com análise de arquivos."
+                                    result += "\nUpload concluído, mas o schema da ferramenta selecionada não declara um campo de caminho de arquivo. Selecione uma ferramenta compatível com análise de arquivos."
                                 }
                             }
                         } else { result = text }
@@ -275,7 +275,7 @@ struct ContentView: View {
                 return
             }
             guard let args = makeArguments(for: tool, input: url.absoluteString, mode: "SITE") else {
-                result = "A ferramenta '\\(tool.name)' tem campos obrigatórios que não podem ser preenchidos automaticamente. Veja o schema em Avançado."
+                result = "A ferramenta '\(tool.name)' tem campos obrigatórios que não podem ser preenchidos automaticamente. Veja o schema em Avançado."
                 return
             }
             sendToolCall(tool: tool.name, args: args)
@@ -296,51 +296,51 @@ struct ContentView: View {
                 let bytes = try Data(contentsOf: file)
                 let boundary = UUID().uuidString
                 var body = Data()
-                body.append("--\\(boundary)\\r\\n".data(using: .utf8)!)
-                body.append("Content-Disposition: form-data; name=\\"file\\"; filename=\\"\\(file.lastPathComponent)\\"\\r\\n".data(using: .utf8)!)
-                body.append("Content-Type: application/octet-stream\\r\\n\\r\\n".data(using: .utf8)!)
+                body.append("--\(boundary)\r\n".data(using: .utf8)!)
+                body.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(file.lastPathComponent)\"\r\n".data(using: .utf8)!)
+                body.append("Content-Type: application/octet-stream\r\n\r\n".data(using: .utf8)!)
                 body.append(bytes)
-                body.append("\\r\\n--\\(boundary)--\\r\\n".data(using: .utf8)!)
+                body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
                 var req = URLRequest(url: base.appendingPathComponent("api/upload"))
                 req.httpMethod = "POST"
-                req.setValue("Bearer \\(self.token)", forHTTPHeaderField: "Authorization")
-                req.setValue("multipart/form-data; boundary=\\(boundary)", forHTTPHeaderField: "Content-Type")
+                req.setValue("Bearer \(self.token)", forHTTPHeaderField: "Authorization")
+                req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
                 req.httpBody = body
                 req.timeoutInterval = 300
                 URLSession.shared.dataTask(with: req) { data, response, error in
                     DispatchQueue.main.async {
-                        if let error { busy = false; result = "Falha no upload: \\(error.localizedDescription)"; return }
+                        if let error { busy = false; result = "Falha no upload: \(error.localizedDescription)"; return }
                         guard let data, let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
                               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                               let path = object["filePath"] as? String else {
                             busy = false
-                            result = "O servidor não aceitou o arquivo: \\(String(data: data ?? Data(), encoding: .utf8) ?? "sem resposta")"
+                            result = "O servidor não aceitou o arquivo: \(String(data: data ?? Data(), encoding: .utf8) ?? "sem resposta")"
                             return
                         }
                         uploadPath = path
                         guard let args = makeArguments(for: tool, input: path, mode: "IPA") else {
                             busy = false
-                            result = "O arquivo foi enviado, mas o schema de '\\(tool.name)' não tem campos obrigatórios compatíveis com caminho de IPA."
+                            result = "O arquivo foi enviado, mas o schema de '\(tool.name)' não tem campos obrigatórios compatíveis com caminho de IPA."
                             return
                         }
                         sendToolCall(tool: tool.name, args: args)
                     }
                 }.resume()
             } catch {
-                DispatchQueue.main.async { busy = false; result = "Não foi possível ler o IPA: \\(error.localizedDescription)" }
+                DispatchQueue.main.async { busy = false; result = "Não foi possível ler o IPA: \(error.localizedDescription)" }
             }
         }
     }
 
     private func sendToolCall(tool: String, args: [String: Any]) {
         guard let body = try? JSONSerialization.data(withJSONObject: ["arguments": args]),
-              let req = request("/api/tools/\\(tool)/call", method: "POST", body: body) else {
+              let req = request("/api/tools/\(tool)/call", method: "POST", body: body) else {
             busy = false
             result = "Não foi possível preparar a chamada da ferramenta."
             return
         }
         busy = true
-        result = "Executando análise com \\(tool)…"
+        result = "Executando análise com \(tool)…"
         URLSession.shared.dataTask(with: req) { data, response, error in
             DispatchQueue.main.async {
                 busy = false
@@ -348,7 +348,7 @@ struct ContentView: View {
                 guard let data else { result = "O servidor não retornou conteúdo."; return }
                 let payload = String(data: data, encoding: .utf8) ?? "Resposta não textual."
                 if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
-                    result = "HTTP \\(http.statusCode): \\(payload)"
+                    result = "HTTP \(http.statusCode): \(payload)"
                 } else {
                     result = payload
                 }
