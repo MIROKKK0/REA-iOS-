@@ -30,6 +30,14 @@ jobs:
         run: |
           sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
           xcodebuild -version
+
+      - name: Install Swift 6.4 toolchain
+        uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: "6.4"
+
+      - name: Verify Swift 6.4 toolchain
+        run: |
           swift --version
           swift --version | grep -E 'Swift version 6\.4([ .]|$)'
 
