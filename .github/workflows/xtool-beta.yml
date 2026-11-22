@@ -2,6 +2,8 @@ name: REA xtool 2 beta validation
 
 on:
   workflow_dispatch:
+  push:
+    branches: [feat/xtool-2-beta-build]
   pull_request:
     branches: [main]
     paths:
@@ -29,7 +31,7 @@ jobs:
           sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
           xcodebuild -version
           swift --version
-          swift --version | grep -E 'Swift version 6\\.4([ .]|$)'
+          swift --version | grep -E 'Swift version 6\.4([ .]|$)'
 
       - name: Install XcodeGen
         run: brew install xcodegen
@@ -51,7 +53,7 @@ jobs:
         run: |
           swift build --package-path .xtool-source --configuration release --product xtool
           test -x .xtool-source/.build/release/xtool
-          .xtool-source/.build/release/xtool --version
+          .xtool-source/.build/release/xtool --help
 
       - name: Build REA with xtool
         working-directory: ios
