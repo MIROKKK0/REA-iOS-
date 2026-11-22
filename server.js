@@ -1,6 +1,7 @@
 import express from "express";
 import multer from "multer";
 import { randomUUID, timingSafeEqual } from "node:crypto";
+import { createReadStream } from "node:fs";
 import { mkdir, readdir, stat, unlink } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -130,6 +131,36 @@ app.post("/api/upload", requireAuth, upload.single("file"), async (req, res) => 
     filePath: req.file.path,
     note: "Temporary upload; use only with a REA tool whose discovered input schema accepts a file path."
   });
+});
+
+app.get("/api/uploads/:id", requireAuth, async (req, res) => {
+  const id = req.params.id;
+  if (path.basename(id) !== id || !/^[0-9a-f-]{36}-[A-Za-z0-9._-]{1,100}$/i.test(id)) {
+    return res.status(400).json({ error: "invalid_upload_id" });
+  }
+  const filePath = path.join(uploadDir, id);
+  try {
+    const info = await stat(filePath);
+    if (!info.isFile()) return res.status(404).json({ error: "upload_not_found" });
+    if (Date.now() - info.mtimeMs > 6 * 60 * 60 * 1000) {
+      await unlink(filePath).catch(() => {});
+      return res.status(404).json({ error: "upload_expired" });
+    }
+    res.setHeader("Content-Type", "application/octet-stream");
+    res.setHeader("Content-Length", String(info.size));
+    res.setHeader("Content-Disposition", 'attachment; filename="authorized-analysis.ipa"');
+    const stream = createReadStream(filePath);
+    stream.on("error", error => {
+      console.error("IPA download stream failed:", error.message);
+      if (!res.headersSent) res.status(500).end();
+      else res.destroy(error);
+    });
+    stream.pipe(res);
+  } catch (error) {
+    if (error.code === "ENOENT") return res.status(404).json({ error: "upload_not_found" });
+    console.error("IPA download failed:", error.message);
+    res.status(500).json({ error: "download_failed" });
+  }
 });
 
 app.use((error, _req, res, _next) => {
