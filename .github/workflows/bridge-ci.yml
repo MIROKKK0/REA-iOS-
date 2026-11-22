@@ -16,3 +16,5 @@ jobs:
       - run: npm test
       - name: Start official REA MCP and discover real tools
         run: npm run smoke
+      - name: Verify authenticated IPA upload/download roundtrip
+        run: node scripts/upload-route-smoke.mjs
