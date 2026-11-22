@@ -7,6 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { startDiscoveryRetry } from "./rea-startup.js";
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
@@ -81,6 +82,19 @@ async function withReaClient(fn) {
 }
 
 let reaStartup = { ready: false, toolCount: 0, checkedAt: null, error: null };
+let startupDiscovery = null;
+
+async function resetReaClient() {
+  const pending = reaClientPromise;
+  reaClientPromise = null;
+  if (!pending) return;
+  try {
+    const { client, transport } = await pending;
+    await client.close().catch(() => {});
+    await transport.close().catch(() => {});
+  } catch {}
+}
+
 app.get("/health", (_req, res) => res.json({ ok: true, service: "rea-bridge", reaReady: reaStartup.ready, toolCount: reaStartup.toolCount }));
 app.get("/api/ready", requireAuth, (_req, res) => {
   res.status(reaStartup.ready ? 200 : 503).json(reaStartup);
@@ -171,24 +185,23 @@ app.use((error, _req, res, _next) => {
 
 const server = app.listen(PORT, "0.0.0.0", () => {
   console.log(`REA bridge listening on ${PORT}`);
-  withReaClient(async client => {
-    const result = await client.listTools();
-    reaStartup = { ready: Array.isArray(result.tools) && result.tools.length > 0, toolCount: result.tools?.length ?? 0, checkedAt: new Date().toISOString(), error: null };
-    console.log(`REA MCP startup discovery: ${reaStartup.toolCount} tools`);
-  }).catch(error => {
-    reaStartup = { ready: false, toolCount: 0, checkedAt: new Date().toISOString(), error: String(error.message || error) };
-    console.error("REA MCP startup discovery failed:", error);
+  startupDiscovery = startDiscoveryRetry({
+    discover: () => withReaClient(client => client.listTools()),
+    onState: state => {
+      reaStartup = state;
+      if (state.ready) {
+        console.log(`REA MCP startup discovery: ${state.toolCount} tools`);
+      } else {
+        console.error("REA MCP startup discovery failed; retry scheduled:", state.error);
+      }
+    },
+    onFailure: resetReaClient
   });
 });
 async function shutdown() {
+  startupDiscovery?.stop();
   server.close();
-  if (reaClientPromise) {
-    try {
-      const { client, transport } = await reaClientPromise;
-      await client.close().catch(() => {});
-      await transport.close().catch(() => {});
-    } catch {}
-  }
+  await resetReaClient();
   process.exit(0);
 }
 process.on("SIGTERM", shutdown);
