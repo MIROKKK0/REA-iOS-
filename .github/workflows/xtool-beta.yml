@@ -31,15 +31,16 @@ jobs:
           sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
           xcodebuild -version
 
-      - name: Install Swift 6.4 toolchain
-        uses: swift-actions/setup-swift@v2
-        with:
-          swift-version: "6.4.3"
-
-      - name: Verify Swift 6.4 toolchain
+      - name: Install Swiftly and Swift 6.4.3
         run: |
-          swift --version
-          swift --version | grep -E 'Swift version 6\.4([ .]|$)'
+          curl -fsSL https://download.swift.org/swiftly/darwin/swiftly.pkg -o "$RUNNER_TEMP/swiftly.pkg"
+          installer -pkg "$RUNNER_TEMP/swiftly.pkg" -target CurrentUserHomeDirectory
+          "$HOME/.swiftly/bin/swiftly" init --quiet-shell-followup
+          source "$HOME/.swiftly/env.sh"
+          swiftly install 6.4.3
+          swiftly use 6.4.3
+          swift --version | grep -E 'Swift version 6\\.4([ .]|$)'
+          echo "$PATH" >> "$GITHUB_PATH"
 
       - name: Install XcodeGen
         run: brew install xcodegen
