@@ -1,0 +1,89 @@
+name: REA xtool 2 beta validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/xtool-2-beta-build]
+  pull_request:
+    branches: [main]
+    paths:
+      - "ios/**"
+      - ".github/workflows/xtool-beta.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rea-xtool-beta-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-unsigned-ipa:
+    name: Build unsigned IPA with xtool 2.0 beta
+    runs-on: macos-26
+    timeout-minutes: 50
+    steps:
+      - name: Checkout REA
+        uses: actions/checkout@v4
+
+      - name: Select Xcode and verify Swift toolchain
+        run: |
+          sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+          xcodebuild -version
+
+      - name: Install Swiftly and Swift 6.4.3
+        run: |
+          curl -fsSL https://download.swift.org/swiftly/darwin/swiftly.pkg -o "$RUNNER_TEMP/swiftly.pkg"
+          installer -pkg "$RUNNER_TEMP/swiftly.pkg" -target CurrentUserHomeDirectory
+          "$HOME/.swiftly/bin/swiftly" init --quiet-shell-followup
+          source "$HOME/.swiftly/env.sh"
+          swiftly install 6.4.3
+          swiftly use 6.4.3
+          swift --version | grep -E 'Swift version 6\\.4([ .]|$)'
+          echo "$PATH" >> "$GITHUB_PATH"
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate REA Xcode project
+        working-directory: ios
+        run: |
+          xcodegen generate
+          test -d REA.xcodeproj
+
+      - name: Checkout xtool 2.0.0-beta.1
+        uses: actions/checkout@v4
+        with:
+          repository: xtool-org/xtool
+          ref: 2.0.0-beta.1
+          path: .xtool-source
+
+      - name: Build xtool CLI from pinned beta source
+        run: |
+          swift build --package-path .xtool-source --configuration release --product xtool
+          test -x .xtool-source/.build/release/xtool
+          .xtool-source/.build/release/xtool --help
+
+      - name: Build REA with xtool
+        working-directory: ios
+        run: |
+          "$GITHUB_WORKSPACE/.xtool-source/.build/release/xtool" dev build --configuration release --ipa --verbose
+
+      - name: Validate generated IPA
+        run: |
+          IPA_PATH="$(find ios -type f -name '*.ipa' -print -quit)"
+          test -n "$IPA_PATH"
+          unzip -t "$IPA_PATH"
+          unzip -Z1 "$IPA_PATH" | grep -E '^Payload/REA\.app/Info\.plist$'
+          mkdir -p artifacts
+          cp "$IPA_PATH" artifacts/REA-xtool-unsigned.ipa
+          echo "Validated IPA: $IPA_PATH"
+          ls -lh artifacts/REA-xtool-unsigned.ipa
+
+      - name: Upload xtool IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: REA-xtool-unsigned-IPA
+          path: artifacts/REA-xtool-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 14
