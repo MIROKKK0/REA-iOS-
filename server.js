@@ -1,7 +1,7 @@
 import express from "express";
 import multer from "multer";
 import { randomUUID, timingSafeEqual } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readdir, stat, unlink } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -11,10 +11,17 @@ const app = express();
 const PORT = Number(process.env.PORT || 8787);
 const TOKEN = process.env.REA_BRIDGE_TOKEN;
 const REA_COMMAND = process.env.REA_COMMAND || "./node_modules/.bin/rea";
-const REA_PACKAGE = process.env.REA_PACKAGE || "rea-agents@6.9.0";
+const REA_PACKAGE = process.env.REA_PACKAGE || "rea-agents@6.10.1";
 const MAX_UPLOAD = Number(process.env.MAX_UPLOAD_BYTES || 200 * 1024 * 1024);
 const uploadDir = path.join(os.tmpdir(), "rea-uploads");
 await mkdir(uploadDir, { recursive: true });
+for (const entry of await readdir(uploadDir).catch(() => [])) {
+  const candidate = path.join(uploadDir, entry);
+  try {
+    const info = await stat(candidate);
+    if (info.isFile() && Date.now() - info.mtimeMs > 6 * 60 * 60 * 1000) await unlink(candidate);
+  } catch {}
+}
 
 if (!TOKEN || TOKEN.length < 32) {
   console.error("REA_BRIDGE_TOKEN must be configured with at least 32 characters");
@@ -104,21 +111,25 @@ app.post("/api/tools/:name/call", requireAuth, async (req, res) => {
 });
 
 const upload = multer({
-  storage: multer.memoryStorage(),
+  storage: multer.diskStorage({
+    destination: (_req, _file, callback) => callback(null, uploadDir),
+    filename: (_req, file, callback) => {
+      const safeName = path.basename(file.originalname || "artifact")
+        .replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 100);
+      callback(null, randomUUID() + "-" + safeName);
+    }
+  }),
   limits: { fileSize: MAX_UPLOAD, files: 1 }
 });
 app.post("/api/upload", requireAuth, upload.single("file"), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "file_required" });
-  const safeName = path.basename(req.file.originalname || "artifact").replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 100);
-  const id = randomUUID();
-  const filePath = path.join(uploadDir, `${id}-${safeName}`);
-  try {
-    await writeFile(filePath, req.file.buffer, { flag: "wx", mode: 0o600 });
-    res.status(201).json({ id, fileName: safeName, size: req.file.size, filePath, note: "Use this path only with a REA tool whose discovered input schema accepts a file path." });
-  } catch (error) {
-    console.error("Upload failed:", error);
-    res.status(500).json({ error: "upload_failed" });
-  }
+  res.status(201).json({
+    id: req.file.filename,
+    fileName: path.basename(req.file.originalname || "artifact"),
+    size: req.file.size,
+    filePath: req.file.path,
+    note: "Temporary upload; use only with a REA tool whose discovered input schema accepts a file path."
+  });
 });
 
 app.use((error, _req, res, _next) => {
