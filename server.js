@@ -141,7 +141,9 @@ app.get("/api/uploads/:id", requireAuth, async (req, res) => {
   const filePath = path.join(uploadDir, id);
   try {
     const info = await stat(filePath);
-    if (!info.isFile() || Date.now() - info.mtimeMs > 6 * 60 * 60 * 1000) {
+    if (!info.isFile()) return res.status(404).json({ error: "upload_not_found" });
+    if (Date.now() - info.mtimeMs > 6 * 60 * 60 * 1000) {
+      await unlink(filePath).catch(() => {});
       return res.status(404).json({ error: "upload_expired" });
     }
     res.setHeader("Content-Type", "application/octet-stream");
